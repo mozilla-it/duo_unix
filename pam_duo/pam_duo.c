@@ -27,10 +27,6 @@
 #include <syslog.h>
 #include <unistd.h>
 #define LDAP_DEPRECATED 1
-#define _LDAP_SERVER "ldap://127.0.0.1"
-#define _LDAP_BINDDN ""
-#define _LDAP_BASEDN ""
-#define _LDAP_PASSWORD ""
 #include <ldap.h>
 
 /* These #defines must be present according to PAM documentation. */
@@ -79,8 +75,26 @@ static int
 __ini_handler(void *u, const char *section, const char *name, const char *val)
 {
 	struct duo_config *cfg = (struct duo_config *)u;
-	if (!duo_common_ini_handler(cfg, section, name, val)) {
-		/* There are no options specific to pam_duo yet */
+
+	if (strcmp(name, "ldap_resolve_hack") == 0) {
+		cfg->ldap_resolve_hack = duo_set_boolean_option(val);
+	} else if (strcmp(name, "ldap_failmode") == 0) {
+		cfg->ldap_failmode = duo_set_boolean_option(val);
+	} else if (strcmp(name, "ldap_server") == 0) {
+		cfg->ldap_server = strdup(val);
+	} else if (strcmp(name, "ldap_binddn") == 0) {
+		cfg->ldap_binddn = strdup(val);
+	} else if (strcmp(name, "ldap_basedn") == 0) {
+		cfg->ldap_basedn = strdup(val);
+	} else if (strcmp(name, "ldap_password") == 0) {
+		cfg->ldap_password = strdup(val);
+	} else if (strcmp(name, "ldap_smartfail_domain") == 0) {
+		cfg->ldap_smartfail_domain = strdup(val);
+	} else if (strcmp(name, "ldap_to_attribute") == 0) {
+		cfg->ldap_to_attribute = strdup(val);
+	} else if (strcmp(name, "ldap_from_attribute") == 0) {
+		cfg->ldap_from_attribute = strdup(val);
+	} else if (!duo_common_ini_handler(cfg, section, name, val)) {
 		duo_syslog(LOG_ERR, "Invalid pam_duo option: '%s'", name);
 		return (0);
 	}
@@ -108,7 +122,7 @@ __duo_prompt(void *arg, const char *prompt, char *buf, size_t bufsz)
 }
 
 const char *
-get_email_login_from_ldap(const char *user, const char *host)
+get_email_login_from_ldap(struct duo_config cfg, const char *user, const char *host)
 {
     LDAP        *ld;
 	char		ldap_filter[128];
@@ -119,31 +133,33 @@ get_email_login_from_ldap(const char *user, const char *host)
 	LDAPMessage *res;
 	char		**vals = NULL;
 	char		*val;
-	char		*def;
+	int			len;
+	char		*def = NULL;
 
-	if (strstr(user, "@") == NULL) {
-		def = malloc(strlen(user)+12);
-		snprintf(def, strlen(user)+11, "%s@mozilla.com", user);
+	if ((strstr(user, "@") == NULL) && cfg.ldap_failmode == 0) {
+		len = strlen(user)+strlen(cfg.ldap_smartfail_domain)+2;
+		def = malloc(len);
+		snprintf(def, len, "%s@%s", user, cfg.ldap_smartfail_domain);
 	} else {
 		duo_log(LOG_ERR, "no lookup needed", user, host, NULL);
 		return user;
 	}
 
-	attrs[0] = alloca(16);
-	snprintf(attrs[0], 5, "mail");
-	snprintf(ldap_filter, 127, "uid=%s", user);
+	attrs[0] = alloca(strlen(cfg.ldap_to_attribute)+1);
+	snprintf(attrs[0], strlen(cfg.ldap_to_attribute)+1, cfg.ldap_to_attribute);
+	snprintf(ldap_filter, strlen(cfg.ldap_from_attribute)+strlen(user)+2, "%s=%s", cfg.ldap_from_attribute, user);
 
-	if (ldap_initialize(&ld, _LDAP_SERVER)) {
+	if (ldap_initialize(&ld, cfg.ldap_server)) {
 		duo_log(LOG_ERR, "ldap_initialize failed", user, host, NULL);
 		return def;
 	}
 
-	if (ldap_simple_bind_s(ld, _LDAP_BINDDN, _LDAP_PASSWORD) != LDAP_SUCCESS) {
+	if (ldap_simple_bind_s(ld, cfg.ldap_binddn, cfg.ldap_password) != LDAP_SUCCESS) {
 		duo_log(LOG_ERR, "ldap_simple_bind_s faileds", user, host, NULL);
 		return def;
 	}
 
-	if (ldap_search_s(ld, _LDAP_BASEDN, LDAP_SCOPE_SUBTREE, ldap_filter, attrs, 0,  &res) != LDAP_SUCCESS) {
+	if (ldap_search_s(ld, cfg.ldap_basedn, LDAP_SCOPE_SUBTREE, ldap_filter, attrs, 0,  &res) != LDAP_SUCCESS) {
 		duo_log(LOG_ERR, "ldap_search_s failed", user, host, NULL);
 		return def;
 	}
@@ -177,6 +193,7 @@ get_email_login_from_ldap(const char *user, const char *host)
 #endif
 	ldap_msgfree(res);
 	ldap_unbind(ld);
+	duo_syslog(LOG_INFO, "translated Duo username (will appear as the new user in subsequent log entries) %s=>%s", user, val);
 	return val;
 }
 
@@ -297,7 +314,14 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
 	pam_err = PAM_SERVICE_ERR;
 	for (i = 0; i < cfg.prompts; i++) {
 		/* hack for unix users which aren't emails */
-		user = get_email_login_from_ldap(user, host);
+		if (cfg.ldap_resolve_hack) {
+			duo_log(LOG_INFO, "Attempting LDAP lookup", user, host, NULL);
+			user = get_email_login_from_ldap(cfg, user, host);
+			if (user == NULL) { /* Failmode is fail open*/
+				duo_log(LOG_WARNING, "LDAP failed, bypassing DuoSecurity (fail-open)", user, host, NULL);
+				return PAM_SUCCESS;
+			}
+		}
 
 		code = duo_login(duo, user, host, flags,
                     cfg.pushinfo ? cmd : NULL);
