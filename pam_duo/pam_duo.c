@@ -26,6 +26,12 @@
 #include <string.h>
 #include <syslog.h>
 #include <unistd.h>
+#define LDAP_DEPRECATED 1
+#define _LDAP_SERVER "ldap://127.0.0.1"
+#define _LDAP_BINDDN ""
+#define _LDAP_BASEDN ""
+#define _LDAP_PASSWORD ""
+#include <ldap.h>
 
 /* These #defines must be present according to PAM documentation. */
 #define PAM_SM_AUTH
@@ -99,6 +105,79 @@ __duo_prompt(void *arg, const char *prompt, char *buf, size_t bufsz)
 	strlcpy(buf, p, bufsz);
 	free(p);
 	return (buf);
+}
+
+const char *
+get_email_login_from_ldap(const char *user, const char *host)
+{
+    LDAP        *ld;
+	char		ldap_filter[128];
+	char		*attrs[] = { NULL, NULL };
+	char		*myattr;
+	BerElement	*ber;
+	LDAPMessage	*msg = NULL;
+	LDAPMessage *res;
+	char		**vals = NULL;
+	char		*val;
+	char		*def;
+
+	if (strstr(user, "@") == NULL) {
+		def = malloc(strlen(user)+12);
+		snprintf(def, strlen(user)+11, "%s@mozilla.com", user);
+	} else {
+		duo_log(LOG_ERR, "no lookup needed", user, host, NULL);
+		return user;
+	}
+
+	attrs[0] = alloca(16);
+	snprintf(attrs[0], 5, "mail");
+	snprintf(ldap_filter, 127, "uid=%s", user);
+
+	if (ldap_initialize(&ld, _LDAP_SERVER)) {
+		duo_log(LOG_ERR, "ldap_initialize failed", user, host, NULL);
+		return def;
+	}
+
+	if (ldap_simple_bind_s(ld, _LDAP_BINDDN, _LDAP_PASSWORD) != LDAP_SUCCESS) {
+		duo_log(LOG_ERR, "ldap_simple_bind_s faileds", user, host, NULL);
+		return def;
+	}
+
+	if (ldap_search_s(ld, _LDAP_BASEDN, LDAP_SCOPE_SUBTREE, ldap_filter, attrs, 0,  &res) != LDAP_SUCCESS) {
+		duo_log(LOG_ERR, "ldap_search_s failed", user, host, NULL);
+		return def;
+	}
+
+	if (ldap_count_entries(ld, res) == 0) {
+		duo_log(LOG_ERR, "ldap_count_entries failed", user, host, NULL);
+		return def;
+	}
+
+	msg = ldap_first_entry(ld, res);
+	if (msg == NULL)
+		duo_log(LOG_ERR, "ldap_first_entry failed", user, host, NULL);
+
+	myattr = ldap_first_attribute(ld, msg, &ber);
+	if (myattr == NULL)
+		duo_log(LOG_ERR, "ldap_first_attribute failed", user, host, NULL);
+
+	if ((vals = ldap_get_values(ld, msg, myattr)) == NULL) {
+		duo_log(LOG_ERR, "ldap_get_values failed", user, host, NULL);
+		return def;
+	}
+
+	val = malloc(256);
+	val = strndup(vals[0], 256);
+	free(def);
+	ldap_value_free(vals);
+#if 0
+	/* For some reason you can't free those properly. Have to look up what's really happening. */
+	ber_free(ber, 1);
+	ldap_memfree(msg);
+#endif
+	ldap_msgfree(res);
+	ldap_unbind(ld);
+	return val;
 }
 
 PAM_EXTERN int
@@ -216,8 +295,10 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
 	}
 
 	pam_err = PAM_SERVICE_ERR;
-	
 	for (i = 0; i < cfg.prompts; i++) {
+		/* hack for unix users which aren't emails */
+		user = get_email_login_from_ldap(user, host);
+
 		code = duo_login(duo, user, host, flags,
                     cfg.pushinfo ? cmd : NULL);
 		if (code == DUO_FAIL) {
