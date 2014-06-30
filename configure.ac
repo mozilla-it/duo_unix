@@ -3,7 +3,7 @@
 # All rights reserved, all wrongs reversed
 
 # Minimum autoconf version
-AC_PREREQ(2.65)
+AC_PREREQ(2.63)
 
 # Package, version, bug report address
 AC_INIT([duo_unix],
@@ -15,7 +15,7 @@ AC_CONFIG_AUX_DIR([autotools])
 AC_CONFIG_MACRO_DIR([autotools])
 
 # Init automake
-AM_INIT_AUTOMAKE([1.12.0 foreign subdir-objects serial-tests])
+AM_INIT_AUTOMAKE([1.11.1 foreign subdir-objects])
 AM_MAINTAINER_MODE
 AB_INIT
 
