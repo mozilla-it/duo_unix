@@ -70,6 +70,7 @@
 # define DUO_PRIVSEP_USER	"duo"
 #endif
 #define DUO_CONF		DUO_CONF_DIR "/pam_duo.conf"
+#define MAX_USER_LEN 255
 
 static int
 __ini_handler(void *u, const char *section, const char *name, const char *val)
@@ -124,8 +125,8 @@ __duo_prompt(void *arg, const char *prompt, char *buf, size_t bufsz)
 const char *
 get_email_login_from_ldap(struct duo_config cfg, const char *user, const char *host)
 {
-    LDAP        *ld;
-	char		ldap_filter[128];
+	LDAP        *ld;
+	char		*ldap_filter;
 	char		*attrs[] = { NULL, NULL };
 	char		*myattr;
 	BerElement	*ber;
@@ -133,11 +134,17 @@ get_email_login_from_ldap(struct duo_config cfg, const char *user, const char *h
 	LDAPMessage *res;
 	char		**vals = NULL;
 	char		*val;
-	int			len;
+	int		len, userlen;
 	char		*def = NULL;
 
+	userlen = strlen(user);
+	if (userlen > MAX_USER_LEN) {
+		duo_log(LOG_ERR, "user name too long", user, host, NULL);
+		return def;
+	}
+
 	if ((strstr(user, "@") == NULL) && cfg.ldap_failmode == 0) {
-		len = strlen(user)+strlen(cfg.ldap_smartfail_domain)+2;
+		len = userlen+strlen(cfg.ldap_smartfail_domain)+2;
 		def = malloc(len);
 		snprintf(def, len, "%s@%s", user, cfg.ldap_smartfail_domain);
 	} else {
@@ -147,7 +154,8 @@ get_email_login_from_ldap(struct duo_config cfg, const char *user, const char *h
 
 	attrs[0] = alloca(strlen(cfg.ldap_to_attribute)+1);
 	snprintf(attrs[0], strlen(cfg.ldap_to_attribute)+1, cfg.ldap_to_attribute);
-	snprintf(ldap_filter, strlen(cfg.ldap_from_attribute)+strlen(user)+2, "%s=%s", cfg.ldap_from_attribute, user);
+	ldap_filter = alloca(strlen(cfg.ldap_from_attribute)+userlen+2);
+	snprintf(ldap_filter, strlen(cfg.ldap_from_attribute)+userlen+2, "%s=%s", cfg.ldap_from_attribute, user);
 
 	if (ldap_initialize(&ld, cfg.ldap_server)) {
 		duo_log(LOG_ERR, "ldap_initialize failed", user, host, NULL);
