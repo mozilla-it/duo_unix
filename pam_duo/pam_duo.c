@@ -91,10 +91,10 @@ __ini_handler(void *u, const char *section, const char *name, const char *val)
 		cfg->ldap_password = strdup(val);
 	} else if (strcmp(name, "ldap_smartfail_domain") == 0) {
 		cfg->ldap_smartfail_domain = strdup(val);
-	} else if (strcmp(name, "ldap_to_attribute") == 0) {
-		cfg->ldap_to_attribute = strdup(val);
-	} else if (strcmp(name, "ldap_from_attribute") == 0) {
-		cfg->ldap_from_attribute = strdup(val);
+	} else if (strcmp(name, "ldap_get_attribute") == 0) {
+		cfg->ldap_get_attribute = strdup(val);
+	} else if (strcmp(name, "ldap_search_user_filter") == 0) {
+		cfg->ldap_search_user_filter = strdup(val);
 	} else if (!duo_common_ini_handler(cfg, section, name, val)) {
 		duo_syslog(LOG_ERR, "Invalid pam_duo option: '%s'", name);
 		return (0);
@@ -152,10 +152,10 @@ get_email_login_from_ldap(struct duo_config cfg, const char *user, const char *h
 		return user;
 	}
 
-	attrs[0] = alloca(strlen(cfg.ldap_to_attribute)+1);
-	snprintf(attrs[0], strlen(cfg.ldap_to_attribute)+1, cfg.ldap_to_attribute);
-	ldap_filter = alloca(strlen(cfg.ldap_from_attribute)+userlen+1);
-	snprintf(ldap_filter, strlen(cfg.ldap_from_attribute)+userlen+1, cfg.ldap_from_attribute, user);
+	attrs[0] = alloca(strlen(cfg.ldap_get_attribute)+1);
+	snprintf(attrs[0], strlen(cfg.ldap_get_attribute)+1, cfg.ldap_get_attribute);
+	ldap_filter = alloca(strlen(cfg.ldap_search_user_filter)+userlen+1);
+	snprintf(ldap_filter, strlen(cfg.ldap_search_user_filter)+userlen+1, cfg.ldap_search_user_filter, user);
 
 	if (ldap_initialize(&ld, cfg.ldap_server)) {
 		duo_log(LOG_ERR, "ldap_initialize failed", user, host, NULL);
