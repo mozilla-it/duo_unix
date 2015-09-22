@@ -7,7 +7,7 @@ AC_PREREQ(2.63)
 
 # Package, version, bug report address
 AC_INIT([duo_unix],
-	[1.9.11],
+	[1.9.15],
 	[support@duosecurity.com])
 
 # Tells autoconf where to find necessary build scripts and macros.
@@ -169,7 +169,7 @@ AC_MSG_NOTICE([Using libdir "$libdir"])
 
 # Check for functions
 AC_CONFIG_LIBOBJ_DIR([compat])
-AC_CHECK_FUNCS([memcpy memset sysconf])
+AC_CHECK_FUNCS([memcpy memset sysconf getaddrinfo])
 AC_REPLACE_FUNCS([asprintf getgrouplist strlcpy vsyslog])
 AC_SEARCH_LIBS(inet_ntoa, nsl)
 AC_SEARCH_LIBS(gethostbyname, resolv nsl)

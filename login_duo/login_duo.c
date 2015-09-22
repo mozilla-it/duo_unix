@@ -190,7 +190,8 @@ do_auth(struct login_ctx *ctx, const char *cmd)
     /* Try Duo auth. */
     if ((duo = duo_open(cfg.apihost, cfg.ikey, cfg.skey,
                     "login_duo/" PACKAGE_VERSION,
-                    cfg.noverify ? "" : cfg.cafile)) == NULL) {
+                    cfg.noverify ? "" : cfg.cafile,
+                    cfg.https_timeout)) == NULL) {
         duo_log(LOG_ERR, "Couldn't open Duo API handle",
             pw->pw_name, host, NULL);
         return (EXIT_FAILURE);
@@ -350,6 +351,7 @@ main(int argc, char *argv[])
     struct passwd *pw;
     pid_t pid;
     int c, stat;
+    pid_t wait_res;
     
     memset(ctx, 0, sizeof(ctx));
     
@@ -401,7 +403,11 @@ main(int argc, char *argv[])
                     strerror(errno));
             }
             /* Check auth child status. */
-            if (waitpid(pid, &stat, 0) != pid) {
+            while ((wait_res = waitpid(pid, &stat, 0)) == -1 &&
+                    errno == EINTR) {
+                ;
+            }
+            if (wait_res != pid) {
                 die("waitpid: %s", strerror(errno));
             }
             if (WEXITSTATUS(stat) == 0) {

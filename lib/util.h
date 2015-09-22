@@ -46,6 +46,8 @@ struct duo_config {
     int  prompts;
     int  accept_env;
     int  local_ip_fallback;
+    int  https_timeout;
+    int  send_gecos;
     int  ldap_resolve_hack;
     int  ldap_failmode;
 };

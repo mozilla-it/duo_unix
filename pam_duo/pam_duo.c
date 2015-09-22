@@ -111,10 +111,10 @@ __duo_status(void *arg, const char *msg)
 static char *
 __duo_prompt(void *arg, const char *prompt, char *buf, size_t bufsz)
 {
-	char *p;
-	
+	char *p = NULL;
+
 	if (pam_prompt((pam_handle_t *)arg, PAM_PROMPT_ECHO_ON, &p,
-		"%s", prompt) != PAM_SUCCESS) {
+		"%s", prompt) != PAM_SUCCESS || p == NULL) {
 		return (NULL);
 	}
 	strlcpy(buf, p, bufsz);
@@ -272,7 +272,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
             flags |= DUO_FLAG_SYNC;
     } else if (strcmp(service, "sudo") == 0) {
             cmd = getenv("SUDO_COMMAND");
-    } else if (strcmp(service, "su") == 0) {
+    } else if (strcmp(service, "su") == 0 || strcmp(service, "su-l") == 0) {
             /* Check calling user for Duo auth, just like sudo */
             if ((pw = getpwuid(getuid())) == NULL) {
                     return (PAM_USER_UNKNOWN);
@@ -284,7 +284,17 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
     if (matched == -1) {
         return (PAM_SERVICE_ERR);
     } else if (matched == 0) {
-        return (PAM_SUCCESS);
+	/* If user not in a Duo group, ignore the pam_duo module */
+        return (PAM_IGNORE);
+    }
+
+    /* Use GECOS field if called for */
+    if (cfg.send_gecos) {
+      if (strlen(pw->pw_gecos) > 0) {
+          user = pw->pw_gecos;
+      } else {
+          duo_log(LOG_WARNING, "Empty GECOS field", pw->pw_name, host, NULL);
+      }
     }
 
     /* Grab the remote host */
@@ -309,8 +319,8 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
 	/* Try Duo auth */
 	if ((duo = duo_open(cfg.apihost, cfg.ikey, cfg.skey,
                     "pam_duo/" PACKAGE_VERSION,
-                    cfg.noverify ? "" : cfg.cafile)) == NULL) {
-		duo_log(LOG_ERR, "Couldn't open Duo API handle", user, host, NULL);
+                    cfg.noverify ? "" : cfg.cafile, DUO_NO_TIMEOUT)) == NULL) {
+		duo_log(LOG_ERR, "Couldn't open Duo API handle", pw->pw_name, host, NULL);
 		return (PAM_SERVICE_ERR);
 	}
 	duo_set_conv_funcs(duo, __duo_prompt, __duo_status, pamh);
@@ -335,7 +345,7 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
                     cfg.pushinfo ? cmd : NULL);
 		if (code == DUO_FAIL) {
 			duo_log(LOG_WARNING, "Failed Duo login",
-			    user, host, duo_geterr(duo));
+			    pw->pw_name, host, duo_geterr(duo));
 			if ((flags & DUO_FLAG_SYNC) == 0) {
 				pam_info(pamh, "%s", "");
                         }
@@ -346,25 +356,25 @@ pam_sm_authenticate(pam_handle_t *pamh, int pam_flags,
 		if (code == DUO_OK) {
 			if ((p = duo_geterr(duo)) != NULL) {
 				duo_log(LOG_WARNING, "Skipped Duo login",
-				    user, host, p);
+				    pw->pw_name, host, p);
 			} else {
 				duo_log(LOG_INFO, "Successful Duo login",
-				    user, host, NULL);
+				    pw->pw_name, host, NULL);
 			}
 			pam_err = PAM_SUCCESS;
 		} else if (code == DUO_ABORT) {
 			duo_log(LOG_WARNING, "Aborted Duo login",
-			    user, host, duo_geterr(duo));
+			    pw->pw_name, host, duo_geterr(duo));
 			pam_err = PAM_ABORT;
 		} else if (cfg.failmode == DUO_FAIL_SAFE &&
                     (code == DUO_CONN_ERROR ||
                      code == DUO_CLIENT_ERROR || code == DUO_SERVER_ERROR)) {
 			duo_log(LOG_WARNING, "Failsafe Duo login",
-			    user, host, duo_geterr(duo));
+			    pw->pw_name, host, duo_geterr(duo));
 			pam_err = PAM_SUCCESS;
 		} else {
 			duo_log(LOG_ERR, "Error in Duo login",
-			    user, host, duo_geterr(duo));
+			    pw->pw_name, host, duo_geterr(duo));
 			pam_err = PAM_SERVICE_ERR;
 		}
 		break;
