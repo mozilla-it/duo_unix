@@ -7,7 +7,7 @@ AC_PREREQ(2.63)
 
 # Package, version, bug report address
 AC_INIT([duo_unix],
-	[1.9.17],
+	[1.9.18],
 	[support@duosecurity.com])
 
 # Tells autoconf where to find necessary build scripts and macros.
@@ -172,7 +172,7 @@ AC_CONFIG_LIBOBJ_DIR([compat])
 AC_CHECK_FUNCS([memcpy memset sysconf getaddrinfo])
 AC_REPLACE_FUNCS([asprintf getgrouplist strlcpy vsyslog])
 AC_SEARCH_LIBS(inet_ntoa, nsl)
-AC_SEARCH_LIBS(gethostbyname, resolv nsl)
+AC_SEARCH_LIBS(socket, socket)
 
 AC_CONFIG_FILES(Makefile compat/Makefile lib/Makefile lib/libduo.pc login_duo/Makefile pam_duo/Makefile duo_unix.spec tests/Makefile)
 
